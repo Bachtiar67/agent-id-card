@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent ID Card — Kartu Reputasi Agent ID</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --text:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  .wrap { max-width:640px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font-size:26px; margin:8px 0 4px; }
+  h2 { font-size:18px; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  p, li { line-height:1.55; }
+  .muted { color:var(--muted); font-size:14px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:12px 0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button { background:var(--accent); color:#052e16; border:0; border-radius:10px; padding:12px 18px; font-size:16px; font-weight:700; cursor:pointer; min-height:44px; }
+  button:disabled { background:#334155; color:#94a3b8; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  input, textarea { width:100%; background:#0f172a; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:12px; font-size:15px; margin:6px 0 12px; }
+  label { font-size:14px; color:var(--muted); }
+  .pill { display:inline-block; background:#0f172a; border:1px solid var(--line); border-radius:999px; padding:4px 12px; font-size:13px; margin:2px 4px 2px 0; }
+  .lvl { font-weight:700; }
+  #myCardImg { width:100%; border-radius:12px; display:block; }
+  #status { white-space:pre-wrap; word-break:break-word; font-size:14px; }
+  .ok { color:#4ade80; } .err { color:#f87171; } .warn { color:#fbbf24; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { padding:8px 4px; border-bottom:1px solid var(--line); text-align:left; }
+  td.num, th.num { text-align:right; }
+  a { color:#7dd3fc; }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:13px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🪪 Agent ID Card</h1>
+  <p class="muted">Kartu reputasi on-chain untuk pemegang Binance Agent ID. Mint gratis (1 kartu per wallet), check-in tiap hari untuk menaikkan level. Dibangun untuk Agent ID Hackathon (Binance Wallet × BNB Chain).</p>
+
+  <div class="box">
+    <div class="row">
+      <button id="btnConnect">Hubungkan Wallet</button>
+      <button id="btnSwitch" class="ghost" style="display:none">Pindah ke BSC</button>
+    </div>
+    <p id="walletInfo" class="muted" style="margin:10px 0 0">Wallet belum terhubung. Mode baca saja tetap bisa melihat dinding.</p>
+    <p id="agentIdInfo" class="muted" style="margin:4px 0 0"></p>
+  </div>
+
+  <div id="notDeployed" class="box warn" style="display:none">⚠️ Kontrak belum di-deploy — alamat kontrak masih placeholder. Mint &amp; check-in aktif setelah deploy.</div>
+
+  <h2>📊 Statistik</h2>
+  <div class="box">
+    <span class="pill">Total kartu: <b id="statTotal">…</b> / 1000</span>
+    <span class="pill">Level: <span id="statLevels">1–5 (streak 1 / 3 / 7 / 14 / 30 hari)</span></span>
+    <p class="muted" style="margin:8px 0 0">Level naik dari streak check-in harian: Lv 1 (&lt;3) · Lv 2 (≥3) · Lv 3 (≥7) · Lv 4 (≥14) · Lv 5 (≥30).</p>
+  </div>
+
+  <h2>🪪 Kartu Saya</h2>
+  <div class="box" id="myCardBox">
+    <p class="muted" id="myCardEmpty">Hubungkan wallet untuk melihat kartumu.</p>
+    <img id="myCardImg" style="display:none" alt="Agent ID Card">
+    <div id="myCardMeta" style="display:none; margin-top:10px"></div>
+    <div id="checkinBox" style="display:none; margin-top:12px">
+      <button id="btnCheckin">✅ Check-in Hari Ini</button>
+      <span id="checkinState" class="muted"></span>
+    </div>
+    <div id="editBox" style="display:none; margin-top:14px">
+      <label>Bio (maks 140 byte)</label>
+      <textarea id="editBio" rows="2" maxlength="140"></textarea>
+      <label>Link (maks 120 byte, boleh kosong)</label>
+      <input id="editLink" maxlength="120">
+      <button id="btnUpdate" class="ghost">Simpan Profil</button>
+    </div>
+  </div>
+
+  <h2>✨ Mint Kartu (Gratis)</h2>
+  <div class="box">
+    <p class="muted">Syarat: wallet memegang Agent ID, belum pernah mint. Mint gratis — kamu hanya bayar gas (~$0,01).</p>
+    <label>Bio (maks 140 byte)</label>
+    <textarea id="mintBio" rows="2" maxlength="140" placeholder="Contoh: Builder dari Indonesia"></textarea>
+    <label>Link (maks 120 byte, boleh kosong)</label>
+    <input id="mintLink" maxlength="120" placeholder="Contoh: https://x.com/username">
+    <button id="btnMint">Mint Kartu Saya</button>
+  </div>
+
+  <h2>🏆 Dinding &amp; Leaderboard</h2>
+  <div class="box">
+    <p class="muted" id="wallNote">Memindai event mint di BSC…</p>
+    <table>
+      <thead><tr><th>#</th><th>Pemilik</th><th class="num">Level</th><th class="num">Streak</th></tr></thead>
+      <tbody id="wallBody"><tr><td colspan="4" class="muted">Memuat…</td></tr></tbody>
+    </table>
+    <p class="muted" id="wallPartial" style="display:none">⚠️ Sebagian event tidak terbaca (RPC membatasi). Total kartu di atas tetap akurat.</p>
+  </div>
+
+  <h2>ℹ️ Cara Kerja</h2>
+  <div class="box">
+    <ol>
+      <li>Hubungkan wallet yang memegang Agent ID (<span class="mono">0xbara.ai</span> dkk).</li>
+      <li>Mint kartu gratis — 1 kartu per wallet, maks 1000 kartu.</li>
+      <li>Check-in sekali sehari (UTC) — streak berurutan menaikkan level 1→5.</li>
+      <li>Kartu &amp; metadata 100% on-chain (SVG + JSON, base64). Kartu tidak bisa ditransfer (soulbound).</li>
+    </ol>
+    <p class="muted">Kontrak: <span class="mono" id="contractAddrLabel"></span><br>
+    Agent ID: <span class="mono">0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F</span><br>
+    Jaringan: BNB Smart Chain (56) · <a href="https://bscscan.com" target="_blank" rel="noopener">BscScan</a></p>
+  </div>
+
+  <div class="box"><div id="status" class="muted">Siap.</div></div>
+</div>
+
+<script>
+"use strict";
+// ================= KONFIG =================
+// !!! ISI ALAMAT KONTRAK SETELAH DEPLOY !!!
+const CONTRACT_ADDRESS = "0x7ca4002127f440E81576179c899e1C3737eFd084";
+const AGENT_ID_ADDRESS = "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F";
+const BSC_CHAIN_ID = 56;
+const RPC_URLS = [
+  "https://bsc-dataseed1.ninicoin.io",
+  "https://bsc-dataseed.binance.org",
+  "https://bsc-dataseed1.binance.org",
+  "https://bsc-dataseed.bnbchain.org"
+];
+// ============================================
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+function setStatus(msg, cls) { statusEl.textContent = msg; statusEl.className = cls || "muted"; }
+function shortAddr(a) { return a ? a.slice(0, 6) + "..." + a.slice(-4) : ""; }
+function utf8len(s) { return new TextEncoder().encode(s).length; }
+
+const ABI = [
+  "function mint(string bio, string link)",
+  "function checkIn()",
+  "function updateProfile(string bio, string link)",
+  "function levelOf(uint256 streak) view returns (uint256)",
+  "function profileOf(address owner) view returns (string bio, string link, uint256 tokenId, uint256 streak, uint256 level, uint256 lastCheckInDay)",
+  "function cardInfo(uint256 tokenId) view returns (address owner, string bio, string link, uint256 mintedAt, uint256 streak, uint256 level, uint256 lastCheckInDay)",
+  "function tokenOfOwner(address owner) view returns (uint256)",
+  "function hasMinted(address owner) view returns (bool)",
+  "function totalMinted() view returns (uint256)",
+  "function balanceOf(address owner) view returns (uint256)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function tokenURI(uint256 tokenId) view returns (string)",
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "event CardMinted(address indexed owner, uint256 indexed tokenId, string bio)",
+  "event CheckedIn(address indexed owner, uint256 indexed tokenId, uint256 streak, uint256 level)"
+];
+const AGENT_ABI = ["function balanceOf(address owner) view returns (uint256)"];
+
+const deployed = CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
+$("contractAddrLabel").textContent = CONTRACT_ADDRESS;
+if (!deployed) $("notDeployed").style.display = "block";
+
+let readProvider = null;   // JsonRpcProvider (public RPC) for reads
+let walletProvider = null; // BrowserProvider
+let signer = null;
+let userAddress = null;
+let contract = null;       // read contract
+let contractW = null;      // wallet-connected contract
+
+async function getReadProvider() {
+  if (readProvider) return readProvider;
+  for (const url of RPC_URLS) {
+    try {
+      const p = new ethers.JsonRpcProvider(url, BSC_CHAIN_ID);
+      await p.getBlockNumber();
+      readProvider = p;
+      return p;
+    } catch (e) { /* try next RPC */ }
+  }
+  throw new Error("Semua RPC publik BSC gagal dijangkau.");
+}
+
+function readContract() {
+  if (!contract) {
+    const p = readProvider;
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, p);
+  }
+  return contract;
+}
+
+async function refreshStats() {
+  if (!deployed) { $("statTotal").textContent = "—"; return; }
+  try {
+    const p = await getReadProvider();
+    const c = readContract();
+    const total = await c.totalMinted();
+    $("statTotal").textContent = total.toString();
+  } catch (e) { $("statTotal").textContent = "?"; }
+}
+
+async function refreshMyCard() {
+  const empty = $("myCardEmpty"), img = $("myCardImg"), meta = $("myCardMeta");
+  const checkinBox = $("checkinBox"), editBox = $("editBox");
+  if (!userAddress || !deployed) {
+    empty.style.display = "block"; img.style.display = "none"; meta.style.display = "none";
+    checkinBox.style.display = "none"; editBox.style.display = "none";
+    return;
+  }
+  try {
+    const c = readContract();
+    const has = await c.hasMinted(userAddress);
+    if (!has) {
+      empty.textContent = "Kamu belum punya kartu — mint di bawah.";
+      empty.style.display = "block"; img.style.display = "none"; meta.style.display = "none";
+      checkinBox.style.display = "none"; editBox.style.display = "none";
+      return;
+    }
+    const prof = await c.profileOf(userAddress);
+    const uri = await c.tokenURI(prof.tokenId);
+    const json = JSON.parse(atob(uri.replace("data:application/json;base64,", "")));
+    img.src = json.image;
+    img.style.display = "block";
+    empty.style.display = "none";
+    const today = Math.floor(Date.now() / 1000 / 86400);
+    const checkedToday = Number(prof.lastCheckInDay) === today;
+    meta.innerHTML =
+      "<span class='pill'>#" + prof.tokenId + "</span>" +
+      "<span class='pill lvl'>Level " + prof.level + "</span>" +
+      "<span class='pill'>Streak " + prof.streak + " hari</span>" +
+      "<p class='muted' style='margin:8px 0 0'>" + escapeHtml(prof.bio || "(tanpa bio)") + "<br>" +
+      (prof.link ? "<a href='" + escapeAttr(prof.link) + "' target='_blank' rel='noopener'>" + escapeHtml(prof.link) + "</a>" : "") + "</p>";
+    meta.style.display = "block";
+    checkinBox.style.display = "block";
+    $("btnCheckin").disabled = checkedToday;
+    $("checkinState").textContent = checkedToday ? "Sudah check-in hari ini ✅" : "Belum check-in hari ini.";
+    editBox.style.display = "block";
+    $("editBio").value = prof.bio;
+    $("editLink").value = prof.link;
+  } catch (e) {
+    setStatus("Gagal memuat kartumu: " + (e.reason || e.message), "err");
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/'/g, "&#39;"); }
+
+async function connectWallet() {
+  if (typeof window.ethereum === "undefined") {
+    setStatus("Tidak ada wallet di browser ini. Buka halaman ini di Binance Wallet / MetaMask (mode in-app browser), atau gunakan desktop.", "err");
+    return;
+  }
+  if (typeof ethers === "undefined") {
+    setStatus("Gagal memuat library ethers dari CDN. Cek koneksi internet lalu muat ulang.", "err");
+    return;
+  }
+  try {
+    walletProvider = new ethers.BrowserProvider(window.ethereum);
+    const accounts = await walletProvider.send("eth_requestAccounts", []);
+    userAddress = accounts[0];
+    signer = await walletProvider.getSigner();
+    const net = await walletProvider.getNetwork();
+    $("walletInfo").textContent = "Terhubung: " + shortAddr(userAddress) + " · chain " + net.chainId + (Number(net.chainId) === BSC_CHAIN_ID ? " (BSC ✅)" : " (bukan BSC ⚠️)");
+    $("btnSwitch").style.display = Number(net.chainId) === BSC_CHAIN_ID ? "none" : "inline-block";
+    if (deployed) {
+      contractW = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+      const agent = new ethers.Contract(AGENT_ID_ADDRESS, AGENT_ABI, walletProvider);
+      const bal = await agent.balanceOf(userAddress);
+      $("agentIdInfo").textContent = bal > 0n ? "✅ Wallet ini memegang Agent ID — bisa mint." : "❌ Wallet ini TIDAK memegang Agent ID — mint akan gagal.";
+    }
+    setStatus("Wallet terhubung.", "ok");
+    await refreshMyCard();
+  } catch (e) {
+    setStatus("Gagal menghubungkan wallet: " + (e.reason || e.message), "err");
+  }
+}
+
+async function ensureBSC() {
+  const net = await walletProvider.getNetwork();
+  if (Number(net.chainId) === BSC_CHAIN_ID) return true;
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+    return true;
+  } catch (e) {
+    setStatus("Pindah ke BNB Smart Chain (chain 56) dulu di wallet kamu.", "warn");
+    return false;
+  }
+}
+
+async function doMint() {
+  if (!signer || !contractW) { setStatus("Hubungkan wallet dulu.", "warn"); return; }
+  const bio = $("mintBio").value, link = $("mintLink").value;
+  if (utf8len(bio) > 140) { setStatus("Bio lebih dari 140 byte.", "err"); return; }
+  if (utf8len(link) > 120) { setStatus("Link lebih dari 120 byte.", "err"); return; }
+  if (!(await ensureBSC())) return;
+  try {
+    setStatus("Mengirim mint… (konfirmasi di wallet)", "muted");
+    const tx = await contractW.mint(bio, link);
+    setStatus("Mint terkirim: " + tx.hash + " — menunggu konfirmasi…", "muted");
+    await tx.wait();
+    setStatus("✅ Kartu berhasil di-mint! Tx: " + tx.hash, "ok");
+    await refreshStats(); await refreshMyCard(); await loadWall();
+  } catch (e) {
+    setStatus("Mint gagal: " + (e.reason || e.shortMessage || e.message), "err");
+  }
+}
+
+async function doCheckin() {
+  if (!signer || !contractW) { setStatus("Hubungkan wallet dulu.", "warn"); return; }
+  if (!(await ensureBSC())) return;
+  try {
+    setStatus("Mengirim check-in… (konfirmasi di wallet)", "muted");
+    const tx = await contractW.checkIn();
+    setStatus("Check-in terkirim: " + tx.hash + " — menunggu konfirmasi…", "muted");
+    await tx.wait();
+    setStatus("✅ Check-in berhasil! Streak +1.", "ok");
+    await refreshMyCard(); await loadWall();
+  } catch (e) {
+    setStatus("Check-in gagal: " + (e.reason || e.shortMessage || e.message), "err");
+  }
+}
+
+async function doUpdate() {
+  if (!signer || !contractW) { setStatus("Hubungkan wallet dulu.", "warn"); return; }
+  const bio = $("editBio").value, link = $("editLink").value;
+  if (utf8len(bio) > 140) { setStatus("Bio lebih dari 140 byte.", "err"); return; }
+  if (utf8len(link) > 120) { setStatus("Link lebih dari 120 byte.", "err"); return; }
+  if (!(await ensureBSC())) return;
+  try {
+    setStatus("Menyimpan profil… (konfirmasi di wallet)", "muted");
+    const tx = await contractW.updateProfile(bio, link);
+    await tx.wait();
+    setStatus("✅ Profil diperbarui.", "ok");
+    await refreshMyCard();
+  } catch (e) {
+    setStatus("Update gagal: " + (e.reason || e.shortMessage || e.message), "err");
+  }
+}
+
+async function loadWall() {
+  const body = $("wallBody"), note = $("wallNote"), partial = $("wallPartial");
+  if (!deployed) { body.innerHTML = "<tr><td colspan='4' class='muted'>Kontrak belum di-deploy.</td></tr>"; note.textContent = ""; return; }
+  try {
+    const p = await getReadProvider();
+    const c = readContract();
+    const latest = await p.getBlockNumber();
+    const fromBlock = Math.max(0, latest - 600000); // ~21 hari (blok ~3 detik)
+    const CHUNK = 10000;
+    let minters = new Map(); // owner -> {tokenId, blockNumber}
+    let partialFail = false;
+    note.textContent = "Memindai event mint…";
+    for (let from = fromBlock; from <= latest; from += CHUNK) {
+      const to = Math.min(latest, from + CHUNK - 1);
+      try {
+        const evs = await c.queryFilter(c.filters.CardMinted(), from, to);
+        for (const ev of evs) minters.set(ev.args.owner, { tokenId: Number(ev.args.tokenId), block: ev.blockNumber });
+      } catch (e) {
+        // retry sekali dengan chunk lebih kecil
+        try {
+          const mid = Math.floor((from + to) / 2);
+          const evs1 = await c.queryFilter(c.filters.CardMinted(), from, mid);
+          const evs2 = await c.queryFilter(c.filters.CardMinted(), mid + 1, to);
+          for (const ev of [...evs1, ...evs2]) minters.set(ev.args.owner, { tokenId: Number(ev.args.tokenId), block: ev.blockNumber });
+        } catch (e2) { partialFail = true; }
+      }
+      note.textContent = "Memindai event mint… blok " + to.toLocaleString("id-ID") + " / " + latest.toLocaleString("id-ID");
+    }
+    const owners = [...minters.keys()];
+    // Ambil profil (streak/level) — batasi 50 teratas untuk hemat RPC
+    const rows = [];
+    for (const owner of owners.slice(0, 50)) {
+      try {
+        const prof = await c.profileOf(owner);
+        rows.push({ owner, tokenId: Number(prof.tokenId), level: Number(prof.level), streak: Number(prof.streak) });
+      } catch (e) { /* lewati */ }
+    }
+    rows.sort((a, b) => (b.level - a.level) || (b.streak - a.streak) || (a.tokenId - b.tokenId));
+    if (rows.length === 0) {
+      body.innerHTML = "<tr><td colspan='4' class='muted'>Belum ada yang mint.</td></tr>";
+    } else {
+      body.innerHTML = rows.map((r, i) =>
+        "<tr><td>" + (i + 1) + "</td><td class='mono'>" + shortAddr(r.owner) + "</td>" +
+        "<td class='num lvl'>Lv " + r.level + "</td><td class='num'>" + r.streak + " hari</td></tr>"
+      ).join("");
+    }
+    note.textContent = owners.length + " minter terbaca dari event (maks 50 ditampilkan).";
+    partial.style.display = partialFail ? "block" : "none";
+  } catch (e) {
+    body.innerHTML = "<tr><td colspan='4' class='muted'>Dinding gagal dimuat: " + escapeHtml(e.message || e) + "</td></tr>";
+    note.textContent = "Total kartu di atas tetap akurat.";
+  }
+}
+
+$("btnConnect").addEventListener("click", connectWallet);
+$("btnSwitch").addEventListener("click", ensureBSC);
+$("btnMint").addEventListener("click", doMint);
+$("btnCheckin").addEventListener("click", doCheckin);
+$("btnUpdate").addEventListener("click", doUpdate);
+if (window.ethereum) {
+  window.ethereum.on("accountsChanged", () => location.reload());
+  window.ethereum.on("chainChanged", () => location.reload());
+}
+if (typeof ethers === "undefined") {
+  setStatus("Library ethers gagal dimuat dari CDN — cek koneksi lalu muat ulang halaman.", "err");
+}
+refreshStats();
+loadWall();
+</script>
+</body>
+</html>
